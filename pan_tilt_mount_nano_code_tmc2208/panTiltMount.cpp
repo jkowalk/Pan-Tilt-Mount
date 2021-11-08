@@ -1,5 +1,5 @@
 #include "PanTiltMount.h"
-#include <Iibrary.h> //A library I created for Arduino that contains some simple functions I commonly use. Library available at: https://github.com/isaac879/Iibrary
+#include "Iibrary.h" //A library I created for Arduino that contains some simple functions I commonly use. Library available at: https://github.com/isaac879/Iibrary
 #include <AccelStepper.h> //Library to control the stepper motors http://www.airspayce.com/mikem/arduino/AccelStepper/index.html
 #include <MultiStepper.h> //Library to control multiple coordinated stepper motors http://www.airspayce.com/mikem/arduino/AccelStepper/classMultiStepper.html#details
 #include <EEPROM.h> //To be able to save values when powered off
@@ -166,26 +166,16 @@ void setStepMode(int newMode){ //Step modes for the TMC2208
 
 void panDegrees(float angle){
     target_position[0] = panDegreesToSteps(angle);
-    if(acceleration_enable_state == 0){
-        multi_stepper.moveTo(target_position);
-    }
-    else{
-        stepper_pan.setCurrentPosition(stepper_pan.currentPosition());
-        stepper_pan.runToNewPosition(panDegreesToSteps(angle));
-    }    
+    stepper_pan.setCurrentPosition(stepper_pan.currentPosition());
+    stepper_pan.runToNewPosition(panDegreesToSteps(angle)); 
 }
 
 /*--------------------------------------------------------------------------------------------------------------------------------------------------------*/
 
 void tiltDegrees(float angle){
     target_position[1] = tiltDegreesToSteps(angle);
-    if(acceleration_enable_state == 0){
-        multi_stepper.moveTo(target_position);
-    }
-    else{
-        stepper_tilt.setCurrentPosition(stepper_tilt.currentPosition());
-        stepper_tilt.runToNewPosition(tiltDegreesToSteps(angle));
-    }
+    stepper_tilt.setCurrentPosition(stepper_tilt.currentPosition());
+    stepper_tilt.runToNewPosition(tiltDegreesToSteps(angle));
 }
 
 /*--------------------------------------------------------------------------------------------------------------------------------------------------------*/
@@ -202,8 +192,8 @@ float tiltDegreesToSteps(float angle){
 
 /*--------------------------------------------------------------------------------------------------------------------------------------------------------*/
 
-long sliderMillimetresToSteps(float mm){
-    return round(mm * slider_steps_per_millimetre);
+float sliderMillimetresToSteps(float mm){
+    return mm * slider_steps_per_millimetre;
 }
 
 /*--------------------------------------------------------------------------------------------------------------------------------------------------------*/
@@ -214,20 +204,25 @@ float sliderStepsToMillimetres(long steps){
 
 /*--------------------------------------------------------------------------------------------------------------------------------------------------------*/
 
+float sliderStepsToMillimetres(float steps){
+    return steps / slider_steps_per_millimetre;
+}
+
+/*--------------------------------------------------------------------------------------------------------------------------------------------------------*/
+
 void sliderMoveTo(float mm){
+  Serial.print("MoveTo: ");
+  Serial.println(mm);
     target_position[2] = sliderMillimetresToSteps(mm);
-    if(acceleration_enable_state == 0){ 
-        multi_stepper.moveTo(target_position);
-    }
-    else{
-        stepper_slider.setCurrentPosition(stepper_slider.currentPosition());
-        stepper_slider.runToNewPosition(sliderMillimetresToSteps(mm));
-    }    
+    stepper_slider.setCurrentPosition(stepper_slider.currentPosition());
+    stepper_slider.runToNewPosition(sliderMillimetresToSteps(mm));
+
 }
 
 /*--------------------------------------------------------------------------------------------------------------------------------------------------------*/
 
 void printKeyframeElements(void){
+  /*
     printi(F("Keyframe index: "), current_keyframe_index, F("\n"));
     for(int row = 0; row < keyframe_elements; row++){
         printi(F(""), row, F("\t|"));
@@ -240,6 +235,7 @@ void printKeyframeElements(void){
         printi(F("Delay: "), keyframe_array[row].msDelay, F("ms |\n"));    
     }
     printi(F("\n"));
+    */
 }
 
 /*--------------------------------------------------------------------------------------------------------------------------------------------------------*/
@@ -279,103 +275,97 @@ int setTargetPositions(float panDeg, float tiltDeg, float sliderMillimetre){
 
 /*--------------------------------------------------------------------------------------------------------------------------------------------------------*/
 
-bool findHome(void){
-    bool panHomeFlag = false;
-    bool tiltHomeFlag = false;
-    bool sliderHomeFlag = false;
-    int panHomingDir = -1;
-    int tiltHomingDir = -1; 
-      
-    target_position[0] = stepper_pan.currentPosition();
-    target_position[1] = stepper_tilt.currentPosition();
-    target_position[2] = stepper_slider.currentPosition();
-    
-    if(homing_mode == 0){ //No homing
-        return false;  
-    }
-    
-    if(homing_mode == 1 || homing_mode == 3){ //Home the slider
-        while(digitalRead(PIN_SLIDER_HALL) == 0){ //Move off the hall
-            target_position[2] = target_position[2] + sliderMillimetresToSteps(0.1); 
-            multi_stepper.moveTo(target_position); 
-            multi_stepper.runSpeedToPosition();        
-        }
-        setTargetPositions(panStepsToDegrees(target_position[0]), tiltStepsToDegrees(target_position[1]), -1000);//1000 is about the length of the slider
-        while(multi_stepper.run()){
-            if(digitalRead(PIN_SLIDER_HALL) == 0){
-                stepper_slider.setCurrentPosition(0);//set step count to 0
-                setTargetPositions(panStepsToDegrees(target_position[0]), tiltStepsToDegrees(target_position[1]), 0);
-                sliderHomeFlag = true;
-            }
-        }
-    }
+void findHome() {
+  char dirPan = 1;
+  char dirTilt = 1;
+  int count = 0;
+ //if(homing_mode>=2){
+ if(analogRead(PIN_PAN_HALL) < 50)
+  target_position[0] = target_position[0] - 20*panDegreesToSteps(1);
+ if(analogRead(PIN_TILT_HALL) < 50)
+  target_position[1] = target_position[1] - 30*tiltDegreesToSteps(1);
+  moveToTarget();
 
-    long sliderPos = sliderStepsToMillimetres(stepper_slider.currentPosition());
+  
+      while(count < 60){
+          target_position[0] = target_position[0] + checkMagnet(0);
+          target_position[1] = target_position[1] + checkMagnet(1);
+          moveToTarget();
+          count++;
+     }
+ 
+  count=0;
+  if (analogRead(PIN_PAN_HALL) > 50) {
+    dirPan=-1;
+  }
+  if (analogRead(PIN_TILT_HALL) > 50) {
+    dirTilt=-1;
+  }
+ //}
+  while(count <= 14000) {
+    if(count <= 360){
+
+      target_position[0] = target_position[0] + dirPan * checkMagnet(0);
+      target_position[1] = target_position[1] + dirTilt * checkMagnet(1);
+      
+    }
+ // if(homing_mode==2||homing_mode==3)
+      target_position[2] = target_position[2] + -1 * checkMagnet(2);
+    moveToTarget();
+    count++;
+  }
+   
+
+
+  //if(homing_mode==1) return true;
+  count=0;
+  long firstPan=target_position[0];
+  long firstTilt=target_position[1];
+  while(count < 45 && analogRead(PIN_PAN_HALL) < 50){
+    target_position[0] = target_position[0] + panDegreesToSteps(1) * dirPan;
+    count++;
+    moveToTarget();
+  }
+  while(count < 45 && analogRead(PIN_TILT_HALL) < 50){
+    target_position[1] = target_position[1] + tiltDegreesToSteps(1)*dirTilt;
+    count++;
+    moveToTarget();
+  }
     
-    if(homing_mode == 2 || homing_mode == 3){ //Home pan and tilt
-        while(digitalRead(PIN_PAN_HALL) == 0 || digitalRead(PIN_TILT_HALL) == 0){//If already on a Hall sensor move off
-            target_position[0] = target_position[0] + panDegreesToSteps(!digitalRead(PIN_PAN_HALL));//increment by 1 degree
-            target_position[1] = target_position[1] + tiltDegreesToSteps(!digitalRead(PIN_TILT_HALL));//increment by 1 degree
-            if(target_position[0] > panDegreesToSteps(360) && target_position[1] > tiltDegreesToSteps(360)){//If both axis have done more than a full rotation there must be an issue...
-                return false;
-            }
-            multi_stepper.moveTo(target_position); 
-            multi_stepper.runSpeedToPosition();
-        }
-        stepper_pan.setCurrentPosition(0);//set step count to 0
-        stepper_tilt.setCurrentPosition(0);//set step count to 0
+    target_position[0] = target_position[0] - (target_position[0]-firstPan)/2;
+    target_position[1] = target_position[1] - (target_position[1]-firstTilt)/2;
     
-        setTargetPositions(-45, -45, sliderPos);
-        while(multi_stepper.run()){
-            if(digitalRead(PIN_PAN_HALL) == 0){
-                stepper_pan.setCurrentPosition(0);//set step count to 0
-                setTargetPositions(0, -45 * !tiltHomeFlag, sliderPos);
-                panHomeFlag = true;
-                panHomingDir = 1;
-            }
-            if(digitalRead(PIN_TILT_HALL) == 0){
-                stepper_tilt.setCurrentPosition(0);
-                setTargetPositions(-45 * !panHomeFlag, 0, sliderPos);
-                tiltHomeFlag = true;
-                tiltHomingDir = 1;
-            }
-        }     
-        
-        setTargetPositions(360 * !panHomeFlag, 360 * !tiltHomeFlag, sliderPos);//full rotation on both axis so it must pass the home position
-        while(multi_stepper.run()){
-            if(digitalRead(PIN_PAN_HALL) == 0){
-                stepper_pan.setCurrentPosition(0);//set step count to 0
-                setTargetPositions(0, 360 * !tiltHomeFlag, sliderPos);
-                panHomeFlag = true;
-            }
-            if(digitalRead(PIN_TILT_HALL)  == 0){
-                stepper_tilt.setCurrentPosition(0);
-                setTargetPositions(360 * !panHomeFlag, 0, sliderPos);
-                tiltHomeFlag = true;
-            }
-        } 
+    if(dirTilt==1) {
+      target_position[1]=target_position[1] + tiltDegreesToSteps(4);
+    } else {
+      target_position[1]=target_position[1] - tiltDegreesToSteps(1);
     }
-    
-    if(panHomeFlag && tiltHomeFlag && (homing_mode == 2 || homing_mode == 3)){
-        setTargetPositions(hall_pan_offset_degrees * panHomingDir, hall_tilt_offset_degrees * tiltHomingDir, sliderPos);
-        multi_stepper.runSpeedToPosition();
-        stepper_pan.setCurrentPosition(0);//set step count to 0
-        stepper_tilt.setCurrentPosition(0);//set step count to 0
-        setTargetPositions(0, 0, sliderPos);
-        if(homing_mode == 3 && sliderHomeFlag == false){
-            return false;
-        }
-        else{
-            return true;
-        }
-    }
-    else if(sliderHomeFlag){
-        return true;
-    }
-    else{
-        return false;
-    }
+    moveToTarget();
 }
+
+int checkMagnet(int pos) {
+  switch (pos) {
+    case 0: if(analogRead(PIN_PAN_HALL) > 50) {
+              return panDegreesToSteps(1);
+            }
+            break;
+    case 1: if(analogRead(PIN_TILT_HALL) > 50) {
+              return tiltDegreesToSteps(1);
+            }
+            break;
+    case 2: if(analogRead(PIN_SLIDER_HALL) > 50) {
+              return sliderMillimetresToSteps(1);
+            }
+            break;
+  }
+  return 0;
+}
+
+void moveToTarget() {
+  multi_stepper.moveTo(target_position); 
+    multi_stepper.runSpeedToPosition();
+}
+
 
 /*--------------------------------------------------------------------------------------------------------------------------------------------------------*/
 
@@ -453,7 +443,7 @@ void moveToIndex(int index){
         stepper_pan.setMaxSpeed(keyframe_array[index].panSpeed);
         stepper_tilt.setMaxSpeed(keyframe_array[index].tiltSpeed);
         stepper_slider.setMaxSpeed(keyframe_array[index].sliderSpeed);
-
+/*
         if(acceleration_enable_state == 0){ //If accelerations are not enabled just move directly to the target position. 
             multi_stepper.moveTo(target_position); //Sets new target positions
             multi_stepper.runSpeedToPosition(); //Moves and blocks until complete
@@ -461,6 +451,7 @@ void moveToIndex(int index){
             current_keyframe_index = index;
             return;
         }
+        */
         
         float panInitialSpeed = stepper_pan.speed();
         float tiltInitialSpeed = stepper_tilt.speed();
@@ -621,7 +612,7 @@ void editKeyframe(void){
 void editDelay(unsigned int ms){
     keyframe_array[current_keyframe_index].msDelay = ms;
     printi(ms, F(""));
-    printi(F("ms delay added at index: "), current_keyframe_index);
+    printi(F("ms delay at index: "), current_keyframe_index);
 }
 
 /*--------------------------------------------------------------------------------------------------------------------------------------------------------*/
@@ -806,8 +797,6 @@ void timelapse(unsigned int numberOfPictures, unsigned long msDelay){
     if(numberOfPictures > 1){
         numberOfPictures = numberOfPictures - 1;
     }
-    
-    unsigned long halfDelay = msDelay / 2;
    
     float panAngle = 0;
     float tiltAngle = 0;
@@ -825,10 +814,23 @@ void timelapse(unsigned int numberOfPictures, unsigned long msDelay){
 
     setTargetPositions(panStepsToDegrees(keyframe_array[0].panStepCount), tiltStepsToDegrees(keyframe_array[0].tiltStepCount), sliderStepsToMillimetres(keyframe_array[0].sliderStepCount));
     multi_stepper.runSpeedToPosition();//blocking move to the next position
-    
+
+    unsigned long lastTime = 0;
     for(int i = 0; i <= numberOfPictures; i++){
+        lastTime = millis();
         setTargetPositions(panStepsToDegrees(keyframe_array[0].panStepCount) + (panInc * i), tiltStepsToDegrees(keyframe_array[0].tiltStepCount) + (tiltInc * i), sliderStepsToMillimetres(keyframe_array[0].sliderStepCount) + (sliderInc * i));
-        multi_stepper.runSpeedToPosition();//blocking move to the next position
+        //multi_stepper.runSpeedToPosition();//blocking move to the next position
+        stepper_tilt.setCurrentPosition(stepper_tilt.currentPosition());
+        stepper_tilt.runToNewPosition(target_position[1]);
+       
+        stepper_slider.setCurrentPosition(stepper_slider.currentPosition());
+        stepper_slider.runToNewPosition(target_position[2]);
+
+        stepper_pan.setCurrentPosition(stepper_pan.currentPosition());
+        stepper_pan.runToNewPosition(target_position[0]);
+        
+        int halfDelay = (msDelay - (millis() - lastTime))/2;
+        if(halfDelay <= 0) halfDelay = 0;
         delay(halfDelay);
         triggerCameraShutter();//capture the picture
         delay(halfDelay);
@@ -968,6 +970,7 @@ void scaleKeyframeSpeed(float scaleFactor){
 
 void serialData(void){
     char instruction = Serial.read();
+    printi("---------  ", instruction, "  -----------\n");
     if(instruction == INSTRUCTION_BYTES_SLIDER_PAN_TILT_SPEED){
         int count = 0;
         while(Serial.available() < 6){//Wait for 6 bytes to be available. Breaks after ~20ms if bytes are not received.
@@ -1029,6 +1032,7 @@ void serialData(void){
         }
         break;
         case INSTRUCTION_SLIDER_MILLIMETRES:{
+
             sliderMoveTo(serialCommandValueFloat);
         }
         break;
@@ -1061,17 +1065,250 @@ void serialData(void){
         break;
         case INSTRUCTION_AUTO_HOME:{
             printi(F("Homing\n"));
-            if(findHome()){
-                printi(F("Complete\n"));
-            }
-            else{
+            
                 stepper_pan.setCurrentPosition(0);
                 stepper_tilt.setCurrentPosition(0);
                 stepper_slider.setCurrentPosition(0);
                 setTargetPositions(0, 0, 0);
-                printi(F("Error homing\n"));
+        }
+        break;
+        case INSTRUCTION_SET_HOMING:{
+            setHoming(serialCommandValueInt);
+        }
+        break;
+        case INSTRUCTION_SET_PAN_HALL_OFFSET:{
+            hall_pan_offset_degrees = serialCommandValueFloat;
+            printi(F("Pan offset: "), hall_pan_offset_degrees, 3, F("º\n"));
+        }
+        break;
+        case INSTRUCTION_SET_TILT_HALL_OFFSET:{
+            hall_tilt_offset_degrees = serialCommandValueFloat;
+            printi(F("Tilt offset: "), hall_tilt_offset_degrees, 3, F("º\n"));
+        }
+        break;
+         case INSTRUCTION_INVERT_SLIDER:{
+            invertSliderDirection(serialCommandValueInt);
+        }
+        break;
+        case INSTRUCTION_INVERT_TILT:{
+            invertTiltDirection(serialCommandValueInt);
+        }
+        break;
+        case INSTRUCTION_INVERT_PAN:{
+            invertPanDirection(serialCommandValueInt);
+        }
+        break;
+        case INSTRUCTION_SAVE_TO_EEPROM:{
+            saveEEPROM();
+            printi(F("Saved to EEPROM\n"));
+        }
+        break;
+        case INSTRUCTION_ADD_POSITION:{
+            addPosition();
+        }
+        break;
+        case INSTRUCTION_STEP_FORWARD:{
+            moveToIndex(current_keyframe_index + 1);
+            printi(F("Index: "), current_keyframe_index, F("\n"));
+        }
+        break;
+        case INSTRUCTION_STEP_BACKWARD:{
+            moveToIndex(current_keyframe_index - 1);
+            printi(F("Index: "), current_keyframe_index, F("\n"));
+        }
+        break;
+        case INSTRUCTION_JUMP_TO_START:{
+            gotoFirstKeyframe();
+            printi(F("Index: "), current_keyframe_index, F("\n"));
+        }
+        break;
+        case INSTRUCTION_JUMP_TO_END:{
+            gotoLastKeyframe();
+            printi(F("Index: "), current_keyframe_index, F("\n"));
+        }
+        break;
+        case INSTRUCTION_EDIT_ARRAY:{
+            editKeyframe();
+        }
+        break;
+        case INSTRUCTION_ADD_DELAY:{
+            addDelay(serialCommandValueInt);
+        }
+        break;
+        case INSTRUCTION_EDIT_DELAY:{
+            editDelay(serialCommandValueInt);
+        }
+        break;
+        case INSTRUCTION_CLEAR_ARRAY:{
+            clearKeyframes();
+        }
+        break;
+        case INSTRUCTION_EXECUTE_MOVES:{
+            executeMoves(serialCommandValueInt);
+        }
+        break;      
+        case INSTRUCTION_DEBUG_STATUS:{
+            debugReport();
+        }
+        break;
+        case INSTRUCTION_PAN_DEGREES:{
+            panDegrees(serialCommandValueFloat);
+        }
+        break;  
+        case INSTRUCTION_TILT_DEGREES:{
+            tiltDegrees(serialCommandValueFloat);
+        }
+        break; 
+        case INSTRUCTION_ENABLE:{
+            enableSteppers();
+        }
+        break; 
+        case INSTRUCTION_STEP_MODE:{
+            setStepMode(serialCommandValueInt);
+        }
+        break; 
+        case INSTRUCTION_SET_PAN_SPEED:{
+            printi(F("Max pan speed: "), serialCommandValueFloat, 1, "º/s.\n");
+            pan_max_speed = serialCommandValueFloat;
+            stepper_pan.setMaxSpeed(panDegreesToSteps(pan_max_speed));
+        }
+        break; 
+        case INSTRUCTION_SET_TILT_SPEED:{
+            printi(F("Max tilt speed: "), serialCommandValueFloat, 1, "º/s.\n");
+            tilt_max_speed = serialCommandValueFloat;
+            stepper_tilt.setMaxSpeed(tiltDegreesToSteps(tilt_max_speed));
+        }
+        break;
+        case INSTRUCTION_SET_SLIDER_SPEED:{
+            printi(F("Max slider speed: "), serialCommandValueFloat, 1, "mm/s.\n");
+            slider_max_speed = serialCommandValueFloat;
+            stepper_slider.setMaxSpeed(sliderMillimetresToSteps(slider_max_speed));
+        }
+        break;
+        case INSTRUCTION_CALCULATE_TARGET_POINT:{            
+            if(calculateTargetCoordinate()){
+                printi("Target:\tx: ", intercept.x, 3, "\t");
+                printi("y: ", intercept.y, 3, "\t");
+                printi("z: ", intercept.z, 3, "mm\n");
             }
         }
+        break;  
+        case INSTRUCTION_ORIBIT_POINT:{            
+            if(calculateTargetCoordinate()){
+                interpolateTargetPoint(intercept, serialCommandValueInt);
+            }
+        }
+        break;  
+    }
+}
+
+void executeCommand(){
+    char instruction = Serial.read();
+    printi(">", instruction, "<\n");
+    if(instruction == INSTRUCTION_BYTES_SLIDER_PAN_TILT_SPEED){
+        int count = 0;
+        while(Serial.available() < 6){//Wait for 6 bytes to be available. Breaks after ~20ms if bytes are not received.
+                delayMicroseconds(200); 
+                count++;
+                if(count > 100){
+                    serialFlush();//Clear the serial buffer
+                    break;   
+                }
+            }
+            int sliderStepSpeed = (Serial.read() << 8) + Serial.read(); 
+            int panStepSpeed = (Serial.read() << 8) + Serial.read(); 
+            int tiltStepSpeed = (Serial.read() << 8) + Serial.read(); 
+
+            stepper_slider.setSpeed(sliderStepSpeed);
+            stepper_pan.setSpeed(panStepSpeed);
+            stepper_tilt.setSpeed(tiltStepSpeed);
+            stepper_slider.runSpeed();
+            stepper_pan.runSpeed();
+            stepper_tilt.runSpeed();
+    }
+    
+    delay(2); //wait to make sure all data in the serial message has arived 
+    memset(&stringText[0], 0, sizeof(stringText)); //clear the array
+    while(Serial.available()){//set elemetns of stringText to the serial values sent
+        char digit = Serial.read(); //read in a char
+        strncat(stringText, &digit, 1); //add digit to the end of the array
+    }
+    Serial.println(stringText);
+    serialFlush();//Clear any excess data in the serial buffer
+    int serialCommandValueInt = atoi(stringText); //converts stringText to an int
+    float serialCommandValueFloat = atof(stringText); //converts stringText to a float
+    if(instruction == '+'){//The Bluetooth module sends a message starting with "+CONNECTING" which should be discarded.
+        delay(100); //wait to make sure all data in the serial message has arived 
+        serialFlush();//Clear any excess data in the serial buffer
+        return;
+    }
+    switch(instruction){        
+        case INSTRUCTION_SCALE_SPEED:{
+            scaleKeyframeSpeed(serialCommandValueFloat);
+        }
+        break;
+        case INSTRUCTION_PAN_ACCEL_INCREMENT_DELAY:{
+            pan_accel_increment_us = (serialCommandValueInt >= 0) ? serialCommandValueInt : 0;
+            printi(F("Pan accel delay: "), pan_accel_increment_us, F("us\n"));
+        }
+        break;
+        case INSTRUCTION_TILT_ACCEL_INCREMENT_DELAY:{
+            tilt_accel_increment_us = (serialCommandValueInt >= 0) ? serialCommandValueInt : 0;
+            printi(F("Tilt accel delay: "), tilt_accel_increment_us, F("us\n"));
+        }
+        break;
+        case INSTRUCTION_SLIDER_ACCEL_INCREMENT_DELAY:{
+            slider_accel_increment_us = (serialCommandValueInt >= 0) ? serialCommandValueInt : 0;
+            printi(F("Slider accel delay: "), slider_accel_increment_us, F("us\n"));
+        }
+        break;
+        case INSTRUCTION_ACCEL_ENABLE:{
+            toggleAcceleration();
+        }
+        break;
+        case INSTRUCTION_SLIDER_MILLIMETRES:{
+
+            sliderMoveTo(serialCommandValueFloat);
+        }
+        break;
+        case INSTRUCTION_DELAY_BETWEEN_PICTURES:{
+            delay_ms_between_pictures = serialCommandValueFloat;
+            printi(F("Delay between pics: "), delay_ms_between_pictures, F("ms\n"));
+        }
+        break;
+        case INSTRUCTION_ANGLE_BETWEEN_PICTURES:{
+            degrees_per_picture = serialCommandValueFloat;
+            printi(F("Degs per pic: "), degrees_per_picture, 3, F("º\n"));
+        }
+        break;     
+        case INSTRUCTION_PANORAMICLAPSE:{
+            printi(F("Panorama\n"));
+            panoramiclapse(degrees_per_picture, delay_ms_between_pictures, 1);
+            printi(F("Finished\n"));
+        }
+        break;
+        case INSTRUCTION_TIMELAPSE:{
+            printi(F("Timelapse with "), serialCommandValueInt, F(" pics\n"));
+            printi(F(""), delay_ms_between_pictures, F("ms between pics\n"));
+            timelapse(serialCommandValueInt, delay_ms_between_pictures);
+            printi(F("Finished\n"));
+        }
+        break;
+        case INSTRUCTION_TRIGGER_SHUTTER:{
+            triggerCameraShutter();
+        }
+        break;
+        case INSTRUCTION_AUTO_HOME:{
+            printi(F("Homing\n"));
+            findHome();
+            
+                stepper_pan.setCurrentPosition(0);
+                stepper_tilt.setCurrentPosition(0);
+                stepper_slider.setCurrentPosition(0);
+                setTargetPositions(0, 0, 0);
+            
+            }
+      
         break;
         case INSTRUCTION_SET_HOMING:{
             setHoming(serialCommandValueInt);
@@ -1207,7 +1444,7 @@ void serialData(void){
 
 void mainLoop(void){
     while(1){
-        if(Serial.available()) serialData();
+        if(Serial.available()) executeCommand();
         multi_stepper.run();
     }
 }

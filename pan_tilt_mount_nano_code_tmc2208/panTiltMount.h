@@ -8,7 +8,7 @@
 #define PIN_SHUTTER_TRIGGER A1
 #define PIN_PAN_HALL A3
 #define PIN_TILT_HALL A4
-#define PIN_SLIDER_HALL 2
+#define PIN_SLIDER_HALL A0//2
 #define PIN_INPUT_VOLTAGE A5
 #define PIN_ENABLE 12
 #define PIN_MS1 11
@@ -28,9 +28,9 @@
 #define SLIDER_PULLEY_TEETH 36.0
 #define PAN_GEAR_RATIO 8.4705882352941176470588235294118 //144/17 teeth
 //Used with the belt driven tilt axis.
-#define TILT_GEAR_RATIO 7.6875 //123/16 teeth
+//#define TILT_GEAR_RATIO 7.6875 //123/16 teeth
 //Used with herringbone gears
-//#define TILT_GEAR_RATIO 3.047619047619047619047619047619 //64/21 teeth
+#define TILT_GEAR_RATIO 3.047619047619047619047619047619 //64/21 teeth
 
 #define MAX_STRING_LENGTH 10
 #define KEYFRAME_ARRAY_LENGTH 35
@@ -134,7 +134,9 @@ void mainLoop(void);
 void panDegrees(float);
 void tiltDegrees(float);
 void debugReport(void);
-bool findHome(void);
+void findHome();
+int checkMagnet(int);
+void moveToTarget();
 float getBatteryVoltage(void);
 float getBatteryPercentage(void);
 float boundFloat(float, float, float);
@@ -160,12 +162,13 @@ void setEEPROMVariables(void);
 void invertPanDirection(bool);
 void invertTiltDirection(bool);
 int setTargetPositions(float, float, float);
-void toggleAutoHoming(void);
+//void toggleAutoHoming(void);
 void triggerCameraShutter(void);
 void panoramiclapseInterpolation(float, float, float, float, float, float, float, unsigned long);
 void panoramiclapse(float, unsigned long, int);
-long sliderMillimetresToSteps(float);
+float sliderMillimetresToSteps(float);
 float sliderStepsToMillimetres(long);
+float sliderStepsToMillimetres(float);
 void sliderMoveTo(float);
 void invertSliderDirection(bool);
 void timelapse(unsigned int, unsigned long);
@@ -173,6 +176,8 @@ bool calculateTargetCoordinate(void);
 void interpolateTargetPoint(FloatCoordinate);
 void toggleAcceleration(void);
 void scaleKeyframeSpeed(float);
+
+void executeCommand();
 
 /*------------------------------------------------------------------------------------------------------------------------------------------------------*/
 
